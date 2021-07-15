@@ -1,0 +1,109 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: glusterfs
+automountServiceAccountToken: true
+
+---
+kind: Role
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: glusterfs
+rules:
+- apiGroups: ["*"]
+  resources: ["pods", "statefulsets"]
+  verbs: ["get", "watch", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: glusterfs-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: glusterfs
+subjects:
+- kind: ServiceAccount
+  name: glusterfs
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: glusterfs
+  labels:
+    app: glusterfs
+spec:
+  ports:
+  - port: 24007
+    name: glusterd
+  - port: 24008
+    name: management
+  - port: 2049
+    name: nfs
+  - port: 20048
+    name: mountd
+  - port: 111
+    name: rpcbindu
+    protocol: UDP
+  - port: 111
+    name: rpcbindt
+    protocol: TCP
+  selector:
+    app: glusterfs
+
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: glusterfs
+  labels:
+    app: glusterfs
+spec:
+  serviceName: glusterfs
+  replicas: 6
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: glusterfs
+  template:
+    metadata:
+      labels:
+        app: glusterfs
+    spec:
+      serviceAccountName: glusterfs
+      automountServiceAccountToken: true
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                       - glusterfs
+                topologyKey: kubernetes.io/hostname
+
+      terminationGracePeriodSeconds: 10
+      containers:
+        - name: gluster
+          image: ghcr.io/scalabledelivery/glusterfs:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            capabilities: {}
+            privileged: true
+          ports:
+            # gluster ports
+            - containerPort: 24007
+            - containerPort: 24008
+            # nfs ports
+            - containerPort: 2049
+            - containerPort: 20048
+            - containerPort: 111
+              protocol: UDP
+            - containerPort: 111
+              protocol: TCP
